@@ -24,10 +24,10 @@ def get_latest_client_height(endpoint_url, client_id):
         print(f"Exception querying latest client height from {endpoint_url}: {e}")
     return None
 
-def get_pending_packets(endpoint_url, channel_id, port_id):
+def get_pending_packets(chaina_endpoint_url, chainb_endpoint_url, chaina_channel_id, chainb_channel_id, chaina_port_id, chainb_port_id):
     try:
-        commitments_url = f"{endpoint_url}/ibc/core/channel/v1/channels/{channel_id}/ports/{port_id}/packet_commitments"
-        acks_url = f"{endpoint_url}/ibc/core/channel/v1/channels/{channel_id}/ports/{port_id}/packet_acknowledgements"
+        commitments_url = f"{chaina_endpoint_url}/ibc/core/channel/v1/channels/{chaina_channel_id}/ports/{chaina_port_id}/packet_commitments"
+        acks_url = f"{chainb_endpoint_url}/ibc/core/channel/v1/channels/{chainb_channel_id}/ports/{chainb_port_id}/packet_acknowledgements"
 
         commitments_response = requests.get(commitments_url)
         acks_response = requests.get(acks_url)
@@ -38,7 +38,7 @@ def get_pending_packets(endpoint_url, channel_id, port_id):
 
             # Packets that have been sent but not acknowledged
             pending_packets = commitments - acks
-            return list(pending_packets)
+            return set(pending_packets)
     except Exception as e:
-        print(f"Exception querying pending packets from {endpoint_url}: {e}")
+        print(f"Exception querying pending packets")
     return []

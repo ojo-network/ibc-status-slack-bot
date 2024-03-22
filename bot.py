@@ -1,5 +1,6 @@
 import slack
 import os
+import time
 from dotenv import load_dotenv
 from util import get_latest_block_height, get_latest_client_height, get_pending_packets
 
@@ -39,6 +40,8 @@ class IBC_Channel:
         }
         self.slackClient = slackClient
         self.slackChannel = slackChannel
+        self.chainAPendingPackets = {} # maps pending packets on chain A to number of times seen
+        self.chainBPendingPackets = {} # maps pending packets on chain B to number of times seen
 
     # Query last update height of each chain's ibc client and check wether its
     # behind the chain's current height by more than the chain's maxClientLag.
@@ -65,19 +68,72 @@ class IBC_Channel:
                     {self.chainB['name']} Client height: {chain_b_latest_client_block}"""
             )
 
+    # Check for stuck packets on chain A's and chain B's IBC channel. A packet is considered stuck if it was observed in a previous monitoring period
+    # i.e it was seen exactly twice. Packets seen more than twice are not pushed to slack to avoid warning about the same packets more than once.
     def checkPendingPackets(self):
         # Check for pending packets in Chain A
-        pending_packets_a = get_pending_packets(self.chainA["endpoint"], self.chainA["channelId"], self.chainA["port"])
+        pending_packets_a = get_pending_packets(
+            self.chainA["endpoint"],
+            self.chainB["endpoint"],
+            self.chainA["channelId"],
+            self.chainB["channelId"],
+            self.chainA["port"],
+            self.chainB["port"]
+        )
+        stuckChainAPendingPackets = []
+        for packet in pending_packets_a:
+            self.chainAPendingPackets[packet] = 1 + self.chainAPendingPackets.get(packet, 0)
+            if self.chainAPendingPackets[packet] == 2:
+                stuckChainAPendingPackets.append(packet)
+        if len(stuckChainAPendingPackets) > 0:
+            self.slackClient.chat_postMessage(
+                channel='#' + self.slackChannel,
+                text=f"""WARNING: {self.chainA['name']}'s IBC channel {self.chainA['channelId']} has new pending packets with following sequence numbers:
+                    {stuckChainAPendingPackets}"""
+            )
 
         # Check for pending packets in Chain B
-        pending_packets_b = get_pending_packets(self.chainB["endpoint"], self.chainB["channelId"], self.chainB["port"])
+        pending_packets_b = get_pending_packets(
+            self.chainB["endpoint"],
+            self.chainA["endpoint"],
+            self.chainB["channelId"],
+            self.chainA["channelId"],
+            self.chainB["port"],
+            self.chainA["port"]
+        )
+        stuckChainBPendingPackets = []
+        for packet in pending_packets_b:
+            self.chainBPendingPackets[packet] = 1 + self.chainBPendingPackets.get(packet, 0)
+            if self.chainBPendingPackets[packet] == 2:
+                stuckChainBPendingPackets.append(packet)
+        if len(stuckChainBPendingPackets) > 0:
+            self.slackClient.chat_postMessage(
+                channel='#' + self.slackChannel,
+                text=f"""WARNING: {self.chainB['name']}'s IBC channel {self.chainB['channelId']} has new pending packets with following sequence numbers:
+                    {stuckChainBPendingPackets}"""
+            )
 
-def monitor_channels(channels):
-    for channel in channels:
-        channel.checkClients()
-        channel.checkPendingPackets()
+        self.cleanUpPendingPackets(pending_packets_a, pending_packets_b)
 
-    print("Completed checks")
+    # Cleans up pending packets tracked on each chain that are no longer pending.
+    def cleanUpPendingPackets(self, curr_pending_packets_a, curr_pending_packets_b):
+        for packet in self.chainAPendingPackets:
+            if packet not in curr_pending_packets_a:
+                del self.chainAPendingPackets[packet]
+
+        for packet in self.chainBPendingPackets:
+            if packet not in curr_pending_packets_b:
+                del self.chainBPendingPackets[packet]
+
+
+def monitor_channels(channels, tick_period):
+    while True:
+        for channel in channels:
+            channel.checkClients()
+            channel.checkPendingPackets()
+
+        print("Completed checks")
+        time.sleep(int(tick_period))
 
 def load_channels(slackClient, slackChannel):
     channels = []
@@ -122,5 +178,6 @@ if __name__ == "__main__":
         load_channels(
             slack.WebClient(token=os.environ['SLACK_TOKEN']),
             os.environ['SLACK_CHANNEL']
-        )
+        ),
+        os.environ['TICK_PERIOD']
     )
