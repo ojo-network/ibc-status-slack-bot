@@ -68,9 +68,11 @@ class IBC_Channel:
                     {self.chainB['name']} Client height: {chain_b_latest_client_block}"""
             )
 
+        print(f"Completed {self.chainA['name']}<->{self.chainB['name']} client check")
+
     # Check for stuck packets on chain A's and chain B's IBC channel. A packet is considered stuck if it was observed in a previous monitoring period
     # i.e it was seen exactly twice. Packets seen more than twice are not pushed to slack to avoid warning about the same packets more than once.
-    def checkPendingPackets(self):
+    def checkStalePackets(self):
         # Check for pending packets in Chain A
         pending_packets_a = get_pending_packets(
             self.chainA["endpoint"],
@@ -89,7 +91,10 @@ class IBC_Channel:
             self.slackClient.chat_postMessage(
                 channel='#' + self.slackChannel,
                 text=f"""WARNING: {self.chainA['name']}'s IBC channel {self.chainA['channelId']} has new pending packets with following sequence numbers:
-                    {stuckChainAPendingPackets}"""
+                    {stuckChainAPendingPackets},
+                    {self.chainA['endpoint']}/ibc/core/channel/v1/channels/{self.chainA['channelId']}/ports/{self.chainA['port']}/packet_commitments,
+                    {self.chainB['endpoint']}/ibc/core/channel/v1/channels/{self.chainB['channelId']}/ports/{self.chainB['port']}/packet_acknowledgements,
+                    """
             )
 
         # Check for pending packets in Chain B
@@ -110,10 +115,14 @@ class IBC_Channel:
             self.slackClient.chat_postMessage(
                 channel='#' + self.slackChannel,
                 text=f"""WARNING: {self.chainB['name']}'s IBC channel {self.chainB['channelId']} has new pending packets with following sequence numbers:
-                    {stuckChainBPendingPackets}"""
+                    {stuckChainBPendingPackets},
+                    {self.chainB['endpoint']}/ibc/core/channel/v1/channels/{self.chainB['channelId']}/ports/{self.chainB['port']}/packet_commitments,
+                    {self.chainA['endpoint']}/ibc/core/channel/v1/channels/{self.chainA['channelId']}/ports/{self.chainA['port']}/packet_acknowledgements,
+                    """
             )
 
         self.cleanUpPendingPackets(pending_packets_a, pending_packets_b)
+        print(f"Completed {self.chainA['name']}<->{self.chainB['name']} stale packet check")
 
     # Cleans up pending packets tracked on each chain that are no longer pending.
     def cleanUpPendingPackets(self, curr_pending_packets_a, curr_pending_packets_b):
@@ -130,9 +139,9 @@ def monitor_channels(channels, tick_period):
     while True:
         for channel in channels:
             channel.checkClients()
-            channel.checkPendingPackets()
+            channel.checkStalePackets()
 
-        print("Completed checks")
+        print("Completed all checks")
         time.sleep(int(tick_period))
 
 def load_channels(slackClient, slackChannel):
