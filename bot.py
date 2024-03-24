@@ -126,11 +126,11 @@ class IBC_Channel:
 
     # Cleans up pending packets tracked on each chain that are no longer pending.
     def cleanUpPendingPackets(self, curr_pending_packets_a, curr_pending_packets_b):
-        for packet in self.chainAPendingPackets:
+        for packet in list(self.chainAPendingPackets.keys()):
             if packet not in curr_pending_packets_a:
                 del self.chainAPendingPackets[packet]
 
-        for packet in self.chainBPendingPackets:
+        for packet in list(self.chainBPendingPackets.keys()):
             if packet not in curr_pending_packets_b:
                 del self.chainBPendingPackets[packet]
 
